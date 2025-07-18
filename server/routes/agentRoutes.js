@@ -1,20 +1,57 @@
 const express = require('express');
 const router = express.Router();
 
-// Get all agents
+// Get all agents with detailed statistics
 router.get('/', async (req, res) => {
     try {
         const query = `
       SELECT a.*,
              COUNT(ad.donation_id) AS total_donations,
-             SUM(CASE WHEN d.status = 'done' THEN 1 ELSE 0 END) AS completed_donations
+             SUM(CASE WHEN d.status = 'done' THEN 1 ELSE 0 END) AS completed_donations,
+             SUM(CASE WHEN d.status = 'pending' OR d.status = 'sending' THEN 1 ELSE 0 END) AS pending_donations,
+             ROUND(
+               CASE 
+                 WHEN COUNT(ad.donation_id) > 0 
+                 THEN (SUM(CASE WHEN d.status = 'done' THEN 1 ELSE 0 END)::float / COUNT(ad.donation_id)) * 100 
+                 ELSE 0 
+               END
+             ) AS completion_percentage
       FROM agent_assignments a
       LEFT JOIN agent_donations ad ON a.id = ad.agent_id
       LEFT JOIN donations d ON ad.donation_id = d.id
       GROUP BY a.id
-      ORDER BY a.created_at DESC
+      ORDER BY pending_donations DESC, a.created_at DESC
     `;
         const { rows } = await req.app.locals.db.query(query);
+
+        // Add sheep and cow counts
+        for (const agent of rows) {
+            try {
+                // Get sheep counts
+                const sheepQuery = `
+          SELECT COUNT(*) as count
+          FROM agent_donations ad
+          JOIN donations d ON ad.donation_id = d.id
+          WHERE ad.agent_id = $1 AND d.type = 'sheep'
+        `;
+                const sheepResult = await req.app.locals.db.query(sheepQuery, [agent.id]);
+                agent.sheep_count = parseInt(sheepResult.rows[0].count) || 0;
+
+                // Get cow counts
+                const cowQuery = `
+          SELECT COUNT(*) as count
+          FROM agent_donations ad
+          JOIN donations d ON ad.donation_id = d.id
+          WHERE ad.agent_id = $1 AND d.type = 'cow'
+        `;
+                const cowResult = await req.app.locals.db.query(cowQuery, [agent.id]);
+                agent.cow_count = parseInt(cowResult.rows[0].count) || 0;
+            } catch (error) {
+                console.error(`Error getting counts for agent ${agent.id}:`, error);
+            }
+        }
+
+        console.log(`Returning ${rows.length} agents with stats`);
         res.json(rows);
     } catch (error) {
         console.error('Error fetching agents:', error);
