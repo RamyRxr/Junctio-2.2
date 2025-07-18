@@ -98,9 +98,9 @@ router.get('/:id/donations', async (req, res) => {
     `;
         const sheepResult = await req.app.locals.db.query(sheepQuery, [id]);
 
-        // Get cow donations grouped by cow group - improved query to ensure we get all 7 donors per cow group
+        // Improved cow query to get ALL donations in groups that have at least one donation assigned to this agent
         const cowQuery = `
-      WITH assigned_cow_groups AS (
+      WITH agent_cow_groups AS (
         SELECT DISTINCT cs.cow_group_id
         FROM agent_donations ad
         JOIN donations d ON ad.donation_id = d.id
@@ -109,17 +109,18 @@ router.get('/:id/donations', async (req, res) => {
       )
       SELECT d.*,
              dn.first_name, dn.last_name, dn.whatsapp_number,
-             cs.cow_group_id,
-             COUNT(*) OVER (PARTITION BY cs.cow_group_id) AS shares_count
+             cs.cow_group_id
       FROM cow_shares cs
       JOIN donations d ON cs.donation_id = d.id
       JOIN donors dn ON d.donor_id = dn.id
-      JOIN assigned_cow_groups acg ON cs.cow_group_id = acg.cow_group_id
+      WHERE cs.cow_group_id IN (SELECT cow_group_id FROM agent_cow_groups)
       ORDER BY cs.cow_group_id, d.created_at ASC
     `;
         const cowResult = await req.app.locals.db.query(cowQuery, [id]);
 
-        // Group cow donations by cow_group_id - now includes all donors in each group
+        console.log(`Found ${cowResult.rows.length} cow donations across groups for agent ${id}`);
+
+        // Group cow donations by cow_group_id
         const cowGroups = {};
         cowResult.rows.forEach(row => {
             const groupId = row.cow_group_id;
@@ -129,10 +130,15 @@ router.get('/:id/donations', async (req, res) => {
             cowGroups[groupId].push(row);
         });
 
-        // Add a check to ensure all cow groups have the expected 7 donors
-        Object.keys(cowGroups).forEach(groupId => {
-            console.log(`Cow group ${groupId} has ${cowGroups[groupId].length} donors`);
-        });
+        // Debug output
+        if (Object.keys(cowGroups).length === 0) {
+            console.log(`No cow groups found for agent ${id}`);
+        } else {
+            console.log(`Found ${Object.keys(cowGroups).length} cow groups for agent ${id}`);
+            Object.keys(cowGroups).forEach(groupId => {
+                console.log(`Group ${groupId} has ${cowGroups[groupId].length} donations`);
+            });
+        }
 
         res.json({
             sheepDonations: sheepResult.rows,
@@ -190,7 +196,7 @@ router.post('/split', async (req, res) => {
       HAVING COUNT(*) = 7
     `;
         const cowGroupsResult = await client.query(cowGroupsQuery);
-        
+
         // Restructure cow group data to ensure all 7 shares stay together
         const cowGroupData = cowGroupsResult.rows.map(row => ({
             group_id: row.cow_group_id,
@@ -254,7 +260,7 @@ router.post('/split', async (req, res) => {
             WHERE id = ANY($1::int[]) AND status = 'pending'
           `;
                     await client.query(updateStatusQuery, [allCowDonationIds]);
-                    
+
                     console.log(`Assigned ${allCowDonationIds.length} cow donations across ${agentCowGroups.length} groups to agent ${agents[i].agent_name}`);
                 }
             }
@@ -324,7 +330,7 @@ router.post('/split', async (req, res) => {
             message: 'Donations split successfully',
             agents: agentsWithStats,
             sheepCount: sheepDonationIds.length,
-            cowGroupsCount: cowGroupIds.length
+            cowGroupsCount: cowGroupData.length
         });
     } catch (error) {
         await client.query('ROLLBACK');
