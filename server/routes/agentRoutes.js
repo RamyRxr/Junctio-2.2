@@ -247,9 +247,67 @@ router.post('/split', async (req, res) => {
 
         await client.query('COMMIT');
 
+        // Fetch complete agent information with statistics for immediate dashboard update
+        const agentsWithStats = [];
+        for (const agent of agents) {
+            // Get basic stats for each agent
+            const statsQuery = `
+        SELECT 
+          COUNT(ad.donation_id) AS total_donations,
+          SUM(CASE WHEN d.status = 'done' THEN 1 ELSE 0 END) AS completed_donations,
+          SUM(CASE WHEN d.status = 'pending' OR d.status = 'sending' THEN 1 ELSE 0 END) AS pending_donations,
+          ROUND(
+            CASE 
+              WHEN COUNT(ad.donation_id) > 0 
+              THEN (SUM(CASE WHEN d.status = 'done' THEN 1 ELSE 0 END)::float / COUNT(ad.donation_id)) * 100 
+              ELSE 0 
+            END
+          ) AS completion_percentage
+        FROM agent_donations ad
+        LEFT JOIN donations d ON ad.donation_id = d.id
+        WHERE ad.agent_id = $1
+        GROUP BY ad.agent_id
+      `;
+            const statsResult = await client.query(statsQuery, [agent.id]);
+            const stats = statsResult.rows[0] || {
+                total_donations: 0,
+                completed_donations: 0,
+                pending_donations: 0,
+                completion_percentage: 0
+            };
+
+            // Get sheep count
+            const sheepQuery = `
+        SELECT COUNT(*) as count
+        FROM agent_donations ad
+        JOIN donations d ON ad.donation_id = d.id
+        WHERE ad.agent_id = $1 AND d.type = 'sheep'
+      `;
+            const sheepResult = await client.query(sheepQuery, [agent.id]);
+            const sheep_count = parseInt(sheepResult.rows[0].count) || 0;
+
+            // Get cow count
+            const cowQuery = `
+        SELECT COUNT(*) as count
+        FROM agent_donations ad
+        JOIN donations d ON ad.donation_id = d.id
+        WHERE ad.agent_id = $1 AND d.type = 'cow'
+      `;
+            const cowResult = await client.query(cowQuery, [agent.id]);
+            const cow_count = parseInt(cowResult.rows[0].count) || 0;
+
+            // Combine all information
+            agentsWithStats.push({
+                ...agent,
+                ...stats,
+                sheep_count,
+                cow_count
+            });
+        }
+
         res.json({
             message: 'Donations split successfully',
-            agents,
+            agents: agentsWithStats,
             sheepCount: sheepDonationIds.length,
             cowGroupsCount: cowGroupIds.length
         });
