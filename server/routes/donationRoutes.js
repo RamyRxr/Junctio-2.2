@@ -185,48 +185,41 @@ router.get('/dashboard-counts', async (req, res) => {
     try {
         console.log('Fetching dashboard counts...');
 
-        // Simpler queries with better error handling
         let pendingSheepCount = 0;
         let pendingCowSharesCount = 0;
         let totalPendingValue = 0;
 
         // Get pending sheep count
+
         try {
-            const pendingSheepResult = await req.app.locals.db.query(`
-        SELECT COUNT(*) AS count
-        FROM donations
-        WHERE type = 'sheep' AND status = 'pending'
-      `);
-            pendingSheepCount = parseInt(pendingSheepResult.rows[0]?.count || 0);
+            const sheepQuery = `SELECT COUNT(*)::int AS count FROM donations WHERE type = 'sheep' AND status = 'pending'`;
+            const pendingSheepResult = await req.app.locals.db.query(sheepQuery);
+            pendingSheepCount = Number(pendingSheepResult.rows[0]?.count || 0);
         } catch (err) {
             console.error('Error counting pending sheep:', err);
+            if (err && err.message) console.error('Sheep Query Error:', err.message);
         }
 
         // Get pending cow count
         try {
-            const pendingCowResult = await req.app.locals.db.query(`
-        SELECT COUNT(*) AS count
-        FROM donations
-        WHERE type = 'cow' AND status = 'pending'
-      `);
-            pendingCowSharesCount = parseInt(pendingCowResult.rows[0]?.count || 0);
+            const cowQuery = `SELECT COUNT(*)::int AS count FROM donations WHERE type = 'cow' AND status = 'pending'`;
+            const pendingCowResult = await req.app.locals.db.query(cowQuery);
+            pendingCowSharesCount = Number(pendingCowResult.rows[0]?.count || 0);
         } catch (err) {
             console.error('Error counting pending cows:', err);
+            if (err && err.message) console.error('Cow Query Error:', err.message);
         }
 
         // Get total pending value
         try {
-            const pendingValueResult = await req.app.locals.db.query(`
-        SELECT COALESCE(SUM(price), 0) AS total_value
-        FROM donations
-        WHERE status = 'pending'
-      `);
-            totalPendingValue = parseFloat(pendingValueResult.rows[0]?.total_value || 0);
+            const valueQuery = `SELECT COALESCE(SUM(price), 0)::float AS total_value FROM donations WHERE status = 'pending'`;
+            const pendingValueResult = await req.app.locals.db.query(valueQuery);
+            totalPendingValue = Number(pendingValueResult.rows[0]?.total_value || 0);
         } catch (err) {
             console.error('Error calculating total pending value:', err);
+            if (err && err.message) console.error('Value Query Error:', err.message);
         }
 
-        // Calculate cow groups and remaining shares
         const pendingCowGroups = Math.floor(pendingCowSharesCount / 7);
         const remainingCowShares = pendingCowSharesCount % 7;
 
@@ -243,14 +236,16 @@ router.get('/dashboard-counts', async (req, res) => {
         res.json(result);
     } catch (error) {
         console.error('Error fetching dashboard counts:', error);
+        if (error && error.message) console.error('Dashboard Counts Error:', error.message);
         // Send a fallback response to avoid frontend errors
-        res.json({
+        console.error('Dashboard Counts Error Stack:', error?.stack || error);
+        res.status(500).json({
             pendingSheepCount: 0,
             pendingCowSharesCount: 0,
             pendingCowGroups: 0,
             remainingCowShares: 0,
             totalValue: 0,
-            error: "An error occurred calculating dashboard statistics"
+            error: error?.message || "An error occurred calculating dashboard statistics"
         });
     }
 });

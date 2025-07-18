@@ -43,6 +43,13 @@ app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(morgan('dev'));
 
+// Add Cross-Origin Isolation headers for WASM
+app.use((req, res, next) => {
+    res.header("Cross-Origin-Embedder-Policy", "require-corp");
+    res.header("Cross-Origin-Opener-Policy", "same-origin");
+    next();
+});
+
 // Set up static file serving for uploaded media
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
