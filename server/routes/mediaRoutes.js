@@ -45,12 +45,14 @@ router.post('/upload', upload.single('media'), async (req, res) => {
         if (req.file) {
             // Local file path
             const localFilePath = req.file.path;
+            console.log(`File received: ${req.file.originalname}, size: ${req.file.size} bytes`);
 
             // Upload to Supabase if available
             try {
                 const fileName = `donations/${donation_id}/${type}-${uuidv4()}${path.extname(req.file.originalname)}`;
                 const fileBuffer = fs.readFileSync(localFilePath);
 
+                console.log(`Uploading to Supabase: ${fileName}`);
                 const { data, error } = await supabase.storage
                     .from('media')
                     .upload(fileName, fileBuffer, {
@@ -58,7 +60,10 @@ router.post('/upload', upload.single('media'), async (req, res) => {
                         cacheControl: '3600'
                     });
 
-                if (error) throw error;
+                if (error) {
+                    console.error('Supabase upload error:', error);
+                    throw error;
+                }
 
                 // Get public URL
                 const { data: urlData } = supabase.storage
@@ -66,6 +71,7 @@ router.post('/upload', upload.single('media'), async (req, res) => {
                     .getPublicUrl(fileName);
 
                 filePath = urlData.publicUrl;
+                console.log(`File uploaded to Supabase: ${filePath}`);
 
                 // Delete local file after successful upload
                 fs.unlinkSync(localFilePath);
@@ -135,6 +141,8 @@ router.post('/upload', upload.single('media'), async (req, res) => {
       RETURNING *
     `;
         const { rows } = await req.app.locals.db.query(query, [donation_id, type, filePath]);
+
+        console.log(`Media record saved to database for donation ${donation_id}`);
 
         res.status(201).json({
             ...rows[0],
