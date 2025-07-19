@@ -9,6 +9,9 @@ app.use(express.json());
 const statisticsRoutes = require('./routes/statisticsRoutes');
 app.use('/api/statistics', statisticsRoutes);
 
+const telegramRoutes = require('./routes/telegramRoutes');
+app.use('/api/telegram', telegramRoutes);
+
 app.listen(port, () => {
     console.log(`Server is running on http://localhost:${port}`);
 });
